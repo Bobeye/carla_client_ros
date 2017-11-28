@@ -25,12 +25,12 @@ from carla import Measurements
 import rospy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-from geometry_msgs.msg import Pose, Twist, Point, Quaternion, Vector3
-from std_msgs.msg import Float64
+from geometry_msgs.msg import Pose, Twist, Point, Quaternion, Vector3, Accel
+from std_msgs.msg import Float64, String, Header
 import tf
 from geometry_msgs.msg import TransformStamped
 
-from carla_ros_msgs.msg import TrafficLight, Pedestrian, Vehicle
+from carla_ros_msgs.msg import TrafficLight, Pedestrian, Vehicle, TrafficLights, Pedestrians, Vehicles
 
 # Constant that set how offten the episodes are reseted
 RESET_FREQUENCY = 100
@@ -53,6 +53,9 @@ class CarlaClient():
 		self.ego_quaternion = None 
 		self.ego_accel = None
 		self.ego_speed = None
+		self.trafficlights = None 
+		self.vehicles = None 
+		self.pedestrians = None
 
 		rospy.init_node('carla_example_node', anonymous=True)
 
@@ -63,6 +66,9 @@ class CarlaClient():
 		self.ego_pose_pub = rospy.Publisher('/carla/ego_pose', Pose, queue_size=1)
 		self.ego_accel_pub = rospy.Publisher('/carla/ego_accel', Twist, queue_size=1)
 		self.ego_speed_pub = rospy.Publisher('/carla/ego_speed', Float64, queue_size=1)
+		self.traffilights_pub = rospy.Publisher('/carla/traffic_lights', TrafficLights, queue_size=1)
+		self.pedestrians_pub = rospy.Publisher('/carla/pedestrians', Pedestrians, queue_size=1)
+		self.vehicles_pub = rospy.Publisher('/carla/vehicles', Vehicles, queue_size=1)
 
 		self.main_loop()
 
@@ -195,20 +201,32 @@ class CarlaClient():
 		self.ego_accel.z = ego_az
 		self.ego_speed = ego_v
 
-		# TODO: get traffics states
-		# for agent in measurements['Agents']:
-		# 	if agent.HasField('vehicle'):
-		# 		print (agent.vehicle.transform.location.x, agent.vehicle.transform.orientation.x)
+		# get traffics states
+		self.vehicles = Vehicles()
+		self.pedestrians = Pedestrians()
+		self.trafficlights = TrafficLights()
+		header = Header()
+		header.stamp = rospy.Time.now()
+		header.frame_id = 'velodyne'
+		self.vehicles.header = header
+		self.pedestrians.header = header
+		self.trafficlights.header = header
+		for agent in measurements['Agents']:
+			if agent.HasField('vehicle'):
+				veh = self.carla2rosvehicle(agent)
+				self.vehicles.vehicles.append(veh)
 				
-		# 	elif agent.HasField('pedestrian'):
-		# 		pass
+			elif agent.HasField('pedestrian'):
+				ped = self.carla2rospedestrian(agent)
+				self.pedestrians.pedestrians.append(ped)
 
-		# 	elif agent.HasField('traffic_light'):
-		# 		pass
+			elif agent.HasField('traffic_light'): # green=0, yellow=1, red=2
+				if agent.traffic_light.state == 2:
+					tlt = self.carla2rostrafficlight(agent)
+					self.trafficlights.trafficLights.append(tlt)
 
-
-		# 	elif agent.HasField('speed_limit_sign'):
-		# 		pass
+			elif agent.HasField('speed_limit_sign'):
+				pass
 
 
 	def measurements_publish(self):
@@ -239,9 +257,52 @@ class CarlaClient():
 			ego_speed_frame = Float64()
 			ego_speed_frame.data = self.ego_speed
 			self.ego_speed_pub.publish(ego_speed_frame)
+
+		if self.vehicles is not None:
+			self.vehicles_pub.publish(self.vehicles)
+			self.vehicles = None
+
+		if self.pedestrians is not None:
+			self.pedestrians_pub.publish(self.pedestrians)
+			self.pedestrians = None
+
+		if self.trafficlights is not None:
+			self.traffilights_pub.publish(self.trafficlights)
+			self.trafficlights = None
 			
 
+	def carla2rosvehicle(self, agent):
+		veh = Vehicle()
+		
+		veh_pos = Point()
+		veh_pos.x = agent.vehicle.transform.location.x
+		veh_pos.y = agent.vehicle.transform.location.y
+		veh_pos.z = agent.vehicle.transform.location.z
+		veh.position = veh_pos
 
+		return veh
+
+	def carla2rospedestrian(self, agent):
+		ped = Pedestrian()
+		
+		ped_pos = Point()
+		ped_pos.x = agent.pedestrian.transform.location.x
+		ped_pos.y = agent.pedestrian.transform.location.y
+		ped_pos.z = agent.pedestrian.transform.location.z
+		ped.position = ped_pos
+
+		return ped
+
+	def carla2rostrafficlight(self, agent):
+		tlt = TrafficLight()
+
+		tlt_pos = Point()
+		tlt_pos.x = agent.traffic_light.transform.location.x
+		tlt_pos.y = agent.traffic_light.transform.location.y
+		tlt_pos.z = agent.traffic_light.transform.location.z
+		tlt.position = tlt_pos
+
+		return tlt
 
 	# Function for making colormaps
 	def grayscale_colormap(self, img,colormap):
@@ -272,5 +333,5 @@ class CarlaClient():
 
 
 if __name__ == "__main__":
-	CarlaClient()
+	CarlaClient(ini_file=rospy.get_param('ini'))
 
