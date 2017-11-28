@@ -7,7 +7,38 @@ project(carla_ros_msgs)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED)
+find_package(catkin REQUIRED
+  COMPONENTS
+    geometry_msgs
+    sensor_msgs
+    std_msgs
+    message_generation
+)
+
+add_message_files(
+  FILES
+  	TrafficLight.msg
+  	Vehicle.msg
+  	Pedestrian.msg
+  	TrafficLights.msg
+  	Vehicles.msg
+  	Pedestrians.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  	geometry_msgs
+    sensor_msgs
+    std_msgs
+)
+
+catkin_package(
+  CATKIN_DEPENDS
+    geometry_msgs
+    sensor_msgs
+    message_runtime
+    std_msgs
+)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)

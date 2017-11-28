@@ -30,6 +30,8 @@ from std_msgs.msg import Float64
 import tf
 from geometry_msgs.msg import TransformStamped
 
+from carla_ros_msgs.msg import TrafficLight, Pedestrian, Vehicle
+
 # Constant that set how offten the episodes are reseted
 RESET_FREQUENCY = 100
 # ROS node frequency
