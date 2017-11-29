@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # Bowen, Dec, 2017
-"""Basic CARLA client example on ROS."""
+"""Basic CARLA client on ROS."""
 
 
 
@@ -57,7 +57,7 @@ class CarlaClient():
 		self.vehicles = None 
 		self.pedestrians = None
 
-		rospy.init_node('carla_example_node', anonymous=True)
+		rospy.init_node('carla_node', anonymous=True)
 
 		# Publisher Setup
 		self.image_rgb_pub = rospy.Publisher('/carla/image_rgb', Image, queue_size=1)

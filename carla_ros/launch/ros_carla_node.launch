@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
 <launch>
-	<node pkg="carla_ros" type="ros_carla_example.py" name="ros_carla_example" />
+	<node pkg="carla_ros" type="ros_carla_node.py" name="carla_node" />
 	<param name="ini" value="$(find carla_ros)/scripts/CarlaSettings.ini" type="str" />
 </launch>
