@@ -32,6 +32,8 @@ from geometry_msgs.msg import TransformStamped
 
 from carla_ros_msgs.msg import TrafficLight, Pedestrian, Vehicle, TrafficLights, Pedestrians, Vehicles
 
+from config import *
+
 # Constant that set how offten the episodes are reseted
 RESET_FREQUENCY = 100
 # ROS node frequency
@@ -40,10 +42,15 @@ ROS_FREQUENCY = 5
 
 class CarlaClient():
 
-	def __init__(self, ini_file="CarlaSettings.ini", host="127.0.0.1", port=2000):
+	def __init__(self, ini_file="CarlaSettings.ini", host="127.0.0.1", port=2000, map="Town02"):
 		self.ini_file = ini_file
 		self.host = host
 		self.port = port
+		if map == "Town01":
+			self.map = Town01()
+		if map == "Town02":
+			self.map = Town02()
+
 
 		# initialize variables
 		self.image_rgb = None 
@@ -186,9 +193,9 @@ class CarlaClient():
 		ego_az = measurements['PlayerMeasurements'].acceleration.z
 		ego_v = measurements['PlayerMeasurements'].forward_speed
 		self.ego_point = Point()
-		self.ego_point.x = ego_x 
-		self.ego_point.y = ego_y 
-		self.ego_point.z = ego_z
+		self.ego_point.x = ego_x+self.map.world2map_T[0]
+		self.ego_point.y = ego_y+self.map.world2map_T[1]
+		self.ego_point.z = ego_z+self.map.world2map_T[2]
 		e2_quaternion = tf.transformations.quaternion_from_euler(ego_ox, ego_oy, ego_oz) # roll pitch yall
 		self.ego_quaternion = Quaternion()
 		self.ego_quaternion.x = e2_quaternion[0]
@@ -200,6 +207,8 @@ class CarlaClient():
 		self.ego_accel.y = ego_ay
 		self.ego_accel.z = ego_az
 		self.ego_speed = ego_v
+
+
 
 		# get traffics states
 		self.vehicles = Vehicles()

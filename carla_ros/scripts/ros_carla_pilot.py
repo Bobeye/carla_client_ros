@@ -36,17 +36,49 @@ class CarlaPilot():
 	def __init__(self):
 
 
+		self.current_speed = None
+		self.current_pose = None
+
 		rospy.init_node('carla_pilot_node', anonymous=True)
 
 		# Subscriber Setup
 		rospy.Subscriber('/carla/image_rgb', Image, self.image_rgb_cb)
-		rospy.Subscriber('/carla/ego_pose', Pose)
-		rospy.Subscriber('/carla/ego_accel', Twist)
-		rospy.Subscriber('/carla/ego_speed', Float64)
+		rospy.Subscriber('/carla/ego_pose', Pose, self.ego_pose_cb)
+		rospy.Subscriber('/carla/ego_accel', Twist, self.ego_accel_cb)
+		rospy.Subscriber('/carla/ego_speed', Float64, self.ego_speed_cb)
 
 		# Publisher Setup
+		self.throttle_pub = rospy.Publisher('/carla/throttle_command', Float64, queue_size=1)
+		self.brake_pub = rospy.Publisher('/carla/brake_command', Float64, queue_size=1)
+		self.steering_pub = rospy.Publisher('/carla/steer_command', Float64, queue_size=1)
+
+		self.main_loop()
+
+	def main_loop(self):
+
+		rate = rospy.Rate(ROS_FREQUENCY)
+		while not rospy.is_shutdown():
+			
 
 
 
+			rate.sleep()
+
+
+	def image_rgb_cb(self, data):
+		pass
+
+
+	def ego_pose_cb(self, data):
+		ego_x = data.position.x 
+		ego_y = data.position.y 
+		ego_z = data.position.z 
+		self.current_pose = [ego_x, ego_y, ego_z]
+
+	def ego_accel_cb(self, data):
+		pass
+
+	def ego_speed_cb(self, data):
+		self.current_speed = data.data
 
 
