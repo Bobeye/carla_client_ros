@@ -35,7 +35,6 @@ class CarlaPilot():
 
 	def __init__(self):
 
-
 		self.current_speed = None
 		self.current_pose = None
 
@@ -55,18 +54,18 @@ class CarlaPilot():
 		self.main_loop()
 
 	def main_loop(self):
-
 		rate = rospy.Rate(ROS_FREQUENCY)
 		while not rospy.is_shutdown():
-			
 
+			if self.current_pose is not None:
+				print (self.current_pose)
 
 
 			rate.sleep()
 
 
 	def image_rgb_cb(self, data):
-		pass
+		self.image_frame = data
 
 
 	def ego_pose_cb(self, data):
@@ -75,10 +74,14 @@ class CarlaPilot():
 		ego_z = data.position.z 
 		self.current_pose = [ego_x, ego_y, ego_z]
 
+
 	def ego_accel_cb(self, data):
-		pass
+		self.ego_accel_fram = data
 
 	def ego_speed_cb(self, data):
 		self.current_speed = data.data
 
+
+if __name__ == "__main__":
+	CarlaPilot()
 

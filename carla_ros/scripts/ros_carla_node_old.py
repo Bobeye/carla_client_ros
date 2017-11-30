@@ -29,6 +29,7 @@ from geometry_msgs.msg import Pose, Twist, Point, Quaternion, Vector3, Accel
 from std_msgs.msg import Float64, String, Header
 import tf
 from geometry_msgs.msg import TransformStamped
+from visualization_msgs.msg import Marker, MarkerArray
 
 from carla_ros_msgs.msg import TrafficLight, Pedestrian, Vehicle, TrafficLights, Pedestrians, Vehicles
 
@@ -63,6 +64,8 @@ class CarlaClient():
 		self.trafficlights = None 
 		self.vehicles = None 
 		self.pedestrians = None
+		self.traffics_array = None
+		self.traffics_count = 0
 
 		rospy.init_node('carla_node', anonymous=True)
 
@@ -76,6 +79,7 @@ class CarlaClient():
 		self.traffilights_pub = rospy.Publisher('/carla/traffic_lights', TrafficLights, queue_size=1)
 		self.pedestrians_pub = rospy.Publisher('/carla/pedestrians', Pedestrians, queue_size=1)
 		self.vehicles_pub = rospy.Publisher('/carla/vehicles', Vehicles, queue_size=1)
+		self.traffics_markers_pub = rospy.Publisher('/carla/traffics_markers', MarkerArray, queue_size=1)
 
 		self.main_loop()
 
@@ -181,6 +185,9 @@ class CarlaClient():
 			self.image_seg = cv2.normalize(self.image_seg, (0,255), norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)*255
 			self.image_seg = np.array(self.image_seg, dtype=np.uint8)
 
+		# get traffics markers prepared
+		self.traffics_array = MarkerArray()
+
 		# ego vehicle states
 		ego_x = measurements['PlayerMeasurements'].transform.location.x
 		ego_y = measurements['PlayerMeasurements'].transform.location.y
@@ -193,9 +200,9 @@ class CarlaClient():
 		ego_az = measurements['PlayerMeasurements'].acceleration.z
 		ego_v = measurements['PlayerMeasurements'].forward_speed
 		self.ego_point = Point()
-		self.ego_point.x = ego_x+self.map.world2map_T[0]
-		self.ego_point.y = ego_y+self.map.world2map_T[1]
-		self.ego_point.z = ego_z+self.map.world2map_T[2]
+		self.ego_point.x = ego_x
+		self.ego_point.y = ego_y
+		self.ego_point.z = ego_z
 		e2_quaternion = tf.transformations.quaternion_from_euler(ego_ox, ego_oy, ego_oz) # roll pitch yall
 		self.ego_quaternion = Quaternion()
 		self.ego_quaternion.x = e2_quaternion[0]
@@ -207,6 +214,7 @@ class CarlaClient():
 		self.ego_accel.y = ego_ay
 		self.ego_accel.z = ego_az
 		self.ego_speed = ego_v
+		self.create_ego_marker(ego_x, ego_y, ego_z)
 
 
 
@@ -224,10 +232,16 @@ class CarlaClient():
 			if agent.HasField('vehicle'):
 				veh = self.carla2rosvehicle(agent)
 				self.vehicles.vehicles.append(veh)
+				self.create_vehicle_marker(agent.vehicle.transform.location.x-ego_x,
+										   agent.vehicle.transform.location.y-ego_y,
+										   agent.vehicle.transform.location.z-ego_z)
 				
 			elif agent.HasField('pedestrian'):
 				ped = self.carla2rospedestrian(agent)
 				self.pedestrians.pedestrians.append(ped)
+				self.create_pedestrian_marker(agent.pedestrian.transform.location.x-ego_x,
+											  agent.pedestrian.transform.location.y-ego_y,
+											  agent.pedestrian.transform.location.z-ego_z)
 
 			elif agent.HasField('traffic_light'): # green=0, yellow=1, red=2
 				if agent.traffic_light.state == 2:
@@ -237,6 +251,74 @@ class CarlaClient():
 			elif agent.HasField('speed_limit_sign'):
 				pass
 
+	def create_ego_marker(self, x, y, z):
+		marker = Marker()
+		marker.id = self.traffics_count
+		marker.type = marker.SPHERE
+		marker.header.frame_id = "velodyne"
+		marker.action = marker.ADD
+		marker.scale.x = 1.
+		marker.scale.y = 1.
+		marker.scale.z = 1.
+		marker.color.r = 0.1
+		marker.color.g = 0.0
+		marker.color.b = 1.0
+		marker.color.a = 1.0
+		marker.pose.orientation.w = 1.0
+		marker.pose.position.x = 0
+		marker.pose.position.y = 0
+		marker.pose.position.z = 0
+		self.traffics_array.markers.append(marker)
+		self.traffics_count += 1
+
+	def create_vehicle_marker(self, x, y, z):
+		mx, my, mz = self.world2map(x, y, z)
+		marker = Marker()
+		marker.id = self.traffics_count
+		marker.type = marker.CUBE
+		marker.header.frame_id = "velodyne"
+		marker.action = marker.ADD
+		marker.scale.x = 1.
+		marker.scale.y = 1.
+		marker.scale.z = 1.
+		marker.color.r = 1.0
+		marker.color.g = 0.0
+		marker.color.b = 0.0
+		marker.color.a = 1.0
+		marker.pose.orientation.w = 1.0
+		marker.pose.position.x = mx
+		marker.pose.position.y = my
+		marker.pose.position.z = mz
+		self.traffics_array.markers.append(marker)
+		self.traffics_count += 1
+
+	def create_pedestrian_marker(self, x, y, z):
+		mx, my, mz = self.world2map(x, y, z)
+		marker = Marker()
+		marker.id = self.traffics_count
+		marker.type = marker.CUBE
+		marker.header.frame_id = "velodyne"
+		marker.action = marker.ADD
+		marker.scale.x = 1.
+		marker.scale.y = 1.
+		marker.scale.z = 1.
+		marker.color.r = 0.0
+		marker.color.g = 1.0
+		marker.color.b = 0.0
+		marker.color.a = 1.0
+		marker.pose.orientation.w = 1.0
+		marker.pose.position.x = mx
+		marker.pose.position.y = my
+		marker.pose.position.z = mz
+		self.traffics_array.markers.append(marker)
+		self.traffics_count += 1
+
+
+	def world2map(self, x,y,z):
+		map_x = (x+self.map.world2map_T[0]-self.map.offset[0])/self.map.density/10.
+		map_y = (y+self.map.world2map_T[1]-self.map.offset[1])/self.map.density/10.
+		map_z = (z+self.map.world2map_T[2]-self.map.offset[2])/self.map.density
+		return map_x, map_y, map_z
 
 	def measurements_publish(self):
 		if self.image_rgb is not None:
@@ -279,6 +361,10 @@ class CarlaClient():
 			self.traffilights_pub.publish(self.trafficlights)
 			self.trafficlights = None
 			
+		if self.traffics_array is not None:
+			self.traffics_markers_pub.publish(self.traffics_array)
+			self.traffics_array = None
+			self.traffics_count = 0
 
 	def carla2rosvehicle(self, agent):
 		veh = Vehicle()
