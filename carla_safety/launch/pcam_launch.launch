@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+	<node pkg="carla_safety" type="pcam_node.py" name="pcam_node" />
+	<param name="csvpath" value="$(find carla_safety)/data/csv/" type="str" />
+</launch>
