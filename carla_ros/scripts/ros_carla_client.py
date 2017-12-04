@@ -52,6 +52,8 @@ WINDOW_HEIGHT = 600
 MINI_WINDOW_WIDTH = 320
 MINI_WINDOW_HEIGHT = 180
 
+KMH2MS = 0.2778
+
 
 class CarlaClient():
 
@@ -73,6 +75,12 @@ class CarlaClient():
 		self.image_seg = None
 		self.traffics_array = None
 		self.traffics_count = 0
+		self.pedestrians = None
+		self.vehicles = None
+		self.ego_position = None
+		self.ego_orientation = None
+		self.ego_speed = None
+		self.ego_pose = None
 
 		self.map = CarlaMap(city_name) if city_name is not None else None
 		self.map_shape = self.map.map_image.shape if city_name is not None else None
@@ -88,6 +96,10 @@ class CarlaClient():
 		self.image_seg_pub = rospy.Publisher('/carla/image_seg', Image, queue_size=1)
 		self.image_biv_pub = rospy.Publisher('/carla/image_biv', Image, queue_size=1)
 		self.traffics_markers_pub = rospy.Publisher('/carla/traffics_markers', MarkerArray, queue_size=1)
+		self.pedestrians_pub = rospy.Publisher('/carla/pedestrians', Pedestrians, queue_size=1)
+		self.vehicles_pub = rospy.Publisher('/carla/vehicles', Vehicles, queue_size=1)
+		self.ego_speed_pub = rospy.Publisher('/carla/ego_speed', Float64, queue_size=1)
+		self.ego_pose_pub = rospy.Publisher('/carla/ego_pose', Pose, queue_size=1)
 
 		self.main_loop()
 
@@ -157,14 +169,38 @@ class CarlaClient():
 			measurements.player_measurements.transform.location.x,
 			measurements.player_measurements.transform.location.y,
 			measurements.player_measurements.transform.location.z])
+		# publish ego vehicle speed
+		self.ego_speed = Float64()
+		self.ego_speed.data = float(measurements.player_measurements.forward_speed)*KMH2MS
+		self.ego_speed_pub.publish(self.ego_speed)
+		# publish ego vehicle pose
+		ego_point = Point()
+		ego_point.x = ego_position[0]
+		ego_point.y = ego_position[1]
+		ego_point.z = 0.
+		ego_h = np.arctan2(measurements.player_measurements.transform.orientation.x, measurements.player_measurements.transform.orientation.y)
+		ego_h = ego_h if ego_h > 0 else 2*np.pi+ego_h
+		e2_quaternion = tf.transformations.quaternion_from_euler(0,0,ego_h+np.pi/2) # roll pitch yall
+		ego_quaternion = Quaternion()
+		ego_quaternion.x = e2_quaternion[0]
+		ego_quaternion.y = e2_quaternion[1]
+		ego_quaternion.z = e2_quaternion[2]
+		ego_quaternion.w = e2_quaternion[3]
+		ego_pose_frame = Pose()
+		ego_pose_frame.position = ego_point
+		ego_pose_frame.orientation = ego_quaternion
+		self.ego_pose_pub.publish(ego_pose_frame)
+
 		# publish ego marker
 		self.create_marker(0, 0, 0, shape=2, cr=1.0, cg=0., cb=0., marker_scale=3.0)
 		# mark on the biv image
 		new_window_width =(float(WINDOW_HEIGHT)/float(self.map_shape[0]))*float(self.map_shape[1])
 		w_pos = int(ego_position[0]*(float(WINDOW_HEIGHT)/float(self.map_shape[0])))
 		h_pos =int(ego_position[1] *(new_window_width/float(self.map_shape[1])))
+		self.ego_position = np.array(ego_position)*self.map.pixel_density
+		self.ego_orientation = ego_orientation
 
-
+		self.pedestrians = Pedestrians()
 		agent_positions = measurements.non_player_agents
 		for agent in agent_positions:
 			if agent.HasField('vehicle'):
@@ -172,17 +208,18 @@ class CarlaClient():
 					agent.vehicle.transform.location.x,
 					agent.vehicle.transform.location.y,
 					agent.vehicle.transform.location.z])
-				self.create_marker(agent_position[0]-ego_position[0], 
+				self.create_marker(-agent_position[0]+ego_position[0], 
 								   agent_position[1]-ego_position[1], 
 								   0, 
 								   shape=1, cr=0.0, cg=1., cb=0., marker_scale=2.0)
 				
 			if agent.HasField('pedestrian'):
+				self.add_pedestrian(agent)
 				agent_position = self.map.get_position_on_map([
 					agent.pedestrian.transform.location.x,
 					agent.pedestrian.transform.location.y,
 					agent.pedestrian.transform.location.z])
-				self.create_marker(agent_position[0]-ego_position[0], 
+				self.create_marker(-agent_position[0]+ego_position[0], 
 								   agent_position[1]-ego_position[1], 
 								   0, 
 								   shape=1, cr=0.0, cg=1., cb=1.)
@@ -190,10 +227,32 @@ class CarlaClient():
 		self.traffics_array = None
 		self.traffics_count = 0
 
+		self.pub_pedestrian()
+
 		if self.image_biv is not None:
 			image_biv_frame = CvBridge().cv2_to_imgmsg(cv2.circle(np.copy(self.image_biv),(w_pos,h_pos), 8, (0,0,255), -1), "rgb8")
 			self.image_biv_pub.publish(image_biv_frame)
-	
+
+
+
+	def add_pedestrian(self, agent):
+		ped = Pedestrian()
+		agent_position = np.array(self.map.get_position_on_map([
+									agent.pedestrian.transform.location.x,
+									agent.pedestrian.transform.location.y,
+									agent.pedestrian.transform.location.z]))
+		ped_pos = Point()
+		ped_pos.x = agent_position[0]-self.ego_position[0]
+		ped_pos.y = agent_position[1]-self.ego_position[1]
+		ped_pos.z = 0
+		ped.position = ped_pos
+		self.pedestrians.pedestrians.append(ped)
+
+	def pub_pedestrian(self):
+		if self.pedestrians is not None:
+			self.pedestrians_pub.publish(self.pedestrians)
+			self.pedestrians = None
+
 	def create_marker(self, x, y, z, shape=0, cr=None, cg=None, cb=None, dist_scale=0.1, marker_scale=1.0):
 		marker = Marker()
 		marker.id = self.traffics_count
@@ -241,8 +300,8 @@ class CarlaClient():
 			settings.set(
 				SynchronousMode=True,
 				SendNonPlayerAgentsInfo=True,
-				NumberOfVehicles=20,
-				NumberOfPedestrians=40,
+				NumberOfVehicles=5,
+				NumberOfPedestrians=60,
 				WeatherId=random.choice([1,2,3,4,5,6,7,8,9,10,11,12,13,14]))
 			settings.randomize_seeds()
 			camera0 = sensor.Camera('CameraRGB')

@@ -3,10 +3,11 @@
 
 import rospy
 import numpy as np
-from std_msgs.msg import String, Header
+from std_msgs.msg import Float64, String, Header
 from geometry_msgs.msg import TwistWithCovarianceStamped, PolygonStamped, Point32
 from geometry_msgs.msg import Polygon as rosPolygon
 from geometry_msgs.msg import Point as rosPoint
+from geometry_msgs.msg import Pose
 import sensor_msgs.point_cloud2 as pc2
 from cv_bridge import CvBridge, CvBridgeError
 from shapely.geometry import Polygon, Point
@@ -19,6 +20,7 @@ import tf
 import glob
 import csv
 
+from carla_ros_msgs.msg import TrafficLight, Pedestrian, Vehicle, TrafficLights, Pedestrians, Vehicles
 
 class pcam():
 
@@ -27,16 +29,16 @@ class pcam():
 		self.init_reachability()
 
 		self.frequency = 10
-		self.velocity_frame = None
-		self.imu_frame = None
-		self.gps_frame = None
+		self.current_velocity = None
+		self.current_heading = None
+		self.nearest_pedestrian = None
 
 		rospy.init_node('reachability_node', anonymous=True)
 
 		# launch subscriber
-		# rospy.Subscriber('gps/vel', TwistWithCovarianceStamped, self.gps_velocity_cb)
-		# rospy.Subscriber('imu/data', Imu, self.imu_cb)
-		# rospy.Subscriber('gps/fix', NavSatFix, self.gps_fix_cb)
+		rospy.Subscriber('/carla/ego_speed', Float64, self.ego_speed_cb)
+		rospy.Subscriber('/carla/pedestrians', Pedestrians, self.pedestrians_cb)
+		rospy.Subscriber('/carla/ego_pose', Pose, self.ego_pose_cb)
 
 		# launch publisher
 		self.critical_polygon_pub = rospy.Publisher("/reachability/critical", PolygonStamped, queue_size=1)
@@ -48,14 +50,14 @@ class pcam():
 		rate = rospy.Rate(self.frequency)
 		while not rospy.is_shutdown():
 			
-			if self.velocity_frame is not None:
-				x = np.random.randint(5, size=3)[0]
-				y = np.random.randint(5, size=4)[0]
-				v = np.sqrt(self.velocity_frame.twist.linear.x**2 + self.velocity_frame.twist.linear.y**2)
+			if self.current_velocity is not None and self.current_heading is not None and self.nearest_pedestrian is not None:
+				x = self.nearest_pedestrian[0]/100
+				y = self.nearest_pedestrian[1]/100
+				v = self.current_velocity
 				if v > 20:
 					v = 20
 
-				h = 0
+				h = self.current_heading
 				state = [x,y,v,h]
 				vi, ci, ii = self.check_reachability(state)
 				
@@ -67,8 +69,10 @@ class pcam():
 				for i in range(len(self.critical_reachability[vi][ci][0])):
 					x = self.critical_reachability[vi][ci][0][i]
 					y = self.critical_reachability[vi][ci][1][i]
+					xr = x*np.cos(h)-y*np.sin(h)
+					yr = x*np.sin(h)+y*np.cos(h)
 					z = 0
-					critical_polygon.polygon.points.append(Point32(x=x, y=y, z=z))
+					critical_polygon.polygon.points.append(Point32(x=xr, y=yr, z=z))
 				self.critical_polygon_pub.publish(critical_polygon)
 
 				imminent_polygon = PolygonStamped()
@@ -79,13 +83,32 @@ class pcam():
 				for i in range(len(self.imminent_reachability[vi][ii][0])):
 					x = self.imminent_reachability[vi][ii][0][i]
 					y = self.imminent_reachability[vi][ii][1][i]
+					xr = x*np.cos(h)-y*np.sin(h)
+					yr = x*np.sin(h)+y*np.cos(h)
 					z = 0
-					imminent_polygon.polygon.points.append(Point32(x=x, y=y, z=z))
+					imminent_polygon.polygon.points.append(Point32(x=xr, y=yr, z=z))
 				self.imminent_polygon_pub.publish(imminent_polygon)
 
 			
 				
 			rate.sleep()
+
+	def ego_speed_cb(self, data):
+		self.current_velocity = data.data
+
+	def pedestrians_cb(self, data):
+		ped_positions = []
+		for ped in data.pedestrians:
+			ped_positions += [[ped.position.x, ped.position.y, np.sqrt(ped.position.x**2 + ped.position.y**2)]]
+		nearest_index = np.argmin(np.array(ped_positions).T[2])
+		self.nearest_pedestrian = ped_positions[nearest_index][0:2]
+
+	def ego_pose_cb(self, data):
+		quaternion = (data.orientation.x,
+					  data.orientation.y,
+					  data.orientation.z,
+					  data.orientation.w)
+		self.current_heading = tf.transformations.euler_from_quaternion(quaternion)[2]
 
 	def check_reachability(self, state):
 		x, y, v, h = state[0], state[1], state[2], state[3]
